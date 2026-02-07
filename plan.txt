@@ -1,0 +1,85 @@
+NASA EPIC Bot Architecture
+The following structure organizes your logic into a single Python-based repository.
+
+1. Repository Structure
+Plaintext
+.
+├── .github/workflows/daily_post.yml  # The Cron Job scheduler
+├── main.py                           # The "Orchestrator" script
+├── utils/
+│   ├── nasa_api.py                   # Logic to fetch/download images
+│   ├── video_engine.py               # FFmpeg wrapper for video creation
+│   └── instagram_bot.py              # Unofficial API wrapper (instagrapi)
+├── requirements.txt                  # Python dependencies
+└── .env                              # Local secrets (ignored by git)
+2. Implementation Steps
+A. Image Acquisition (nasa_api.py)
+The script will query the NASA API for the most recent "natural" color images. It must create a timestamped directory to store the frames.
+
+Key Logic: Fetch the JSON from api.nasa.gov, extract the image IDs, and download the high-res PNGs.
+
+B. Video Processing (video_engine.py)
+Using the ffmpeg-python library, the bot will:
+
+Read the images in chronological order.
+
+Apply a "zoom" or "fade" transition if desired.
+
+Output a .mp4 file encoded in H.264 with a 1:1 aspect ratio, as Instagram prefers these specs for stability.
+
+C. The Upload Logic (instagram_bot.py)
+Use the instagrapi library. It mimics the Android/iOS app headers to reduce the chance of a ban.
+
+Captioning: Dynamically generate a caption using the metadata from NASA (e.g., "Earth on [Date] as seen from 1 million miles away").
+
+Session Management: The script should save a session.json file. This prevents you from "logging in" fresh every day, which is a major red flag for Instagram's security bot.
+
+3. Automation & Jitter
+The GitHub Action (daily_post.yml)
+Instead of a standard Linux cron, GitHub Actions allows you to schedule the workflow. To avoid the "exact same time" detection, we use a Python time.sleep() at the start of the script.
+
+YAML
+name: Daily NASA Earth Post
+on:
+  schedule:
+    # Runs at 14:00 UTC every day
+    - cron: '0 14 * * *'
+  workflow_dispatch: # Allows manual testing
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with: { python-version: '3.10' }
+      
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Run Orchestrator
+        env:
+          NASA_API_KEY: ${{ secrets.NASA_API_KEY }}
+          IG_USERNAME: ${{ secrets.IG_USERNAME }}
+          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+        run: python main.py
+Implementing the Jitter (main.py)
+Python
+import time
+import random
+
+def run_with_jitter():
+    # Wait anywhere from 1 to 20 minutes before starting
+    delay = random.randint(60, 1200) 
+    print(f"Applying jitter: waiting {delay} seconds...")
+    time.sleep(delay)
+    
+    # Trigger the Fetch -> Create -> Upload flow
+    # ...
+4. Critical Safety Measures
+GitHub Secrets: Never hardcode your Instagram password. Store it in the "Secrets and Variables" section of your GitHub Repo settings.
+
+2FA: If your account has Two-Factor Authentication, instagrapi supports it, but it's much harder to automate. It's often easier to use an app-specific password or a dedicated bot account with 2FA disabled (though less secure).
+
+Rate Limits: Only run the script once per day. Repeated failures and retries can get your IP (GitHub's runner IP) blacklisted by Instagram.
