@@ -18,6 +18,7 @@ def create_video(
     fps: int = 12,
     width: int = 1080,
     height: int = 1920,
+    subtitle_text: str | None = None,
 ) -> Path:
     """
     Stitch frames into a 9:16 vertical MP4 with date overlay.
@@ -36,6 +37,8 @@ def create_video(
         Output width (default 1080 for 9:16).
     height : int
         Output height (default 1920 for 9:16).
+    subtitle_text : str | None
+        Custom subtitle text. If None, uses the default.
 
     Returns
     -------
@@ -98,9 +101,10 @@ def create_video(
         )
 
         # Add a subtitle line
+        sub = subtitle_text if subtitle_text else "NASA EPIC - View from ~1.5 million km above Earth"
         stream = ffmpeg.filter(
             stream, "drawtext",
-            text="NASA EPIC - View from ~1.5 million km above Earth",
+            text=sub,
             fontsize=28,
             fontcolor="white@0.8",
             borderw=2,

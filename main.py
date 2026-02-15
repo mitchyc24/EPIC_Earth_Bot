@@ -249,4 +249,16 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="EPIC Earth Bot")
+    parser.add_argument("--auto", action="store_true",
+                        help="Run full pipeline automatically (no TUI)")
+    args = parser.parse_args()
+
+    if args.auto:
+        main()
+    else:
+        from utils.tui import show_main_menu
+        from dotenv import load_dotenv
+        load_dotenv()
+        show_main_menu()

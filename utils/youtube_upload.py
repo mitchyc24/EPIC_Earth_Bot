@@ -30,7 +30,8 @@ TOKEN_FILE = YOUTUBE_DIR / "oauth_token.json"
 
 # YouTube API settings
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
-          "https://www.googleapis.com/auth/youtube.readonly"]
+          "https://www.googleapis.com/auth/youtube.readonly",
+          "https://www.googleapis.com/auth/youtube"]  # full scope needed for delete/update
 
 # Retry settings
 MAX_RETRIES = 3
@@ -265,3 +266,75 @@ def check_already_uploaded(service, date_str: str) -> str | None:
     title = make_video_title(date_str)
     existing = get_uploaded_video_titles(service)
     return existing.get(title)
+
+
+def delete_video(service, video_id: str) -> bool:
+    """
+    Delete a video from YouTube by its video ID.
+
+    Returns True if successful, False otherwise.
+    """
+    try:
+        print(f"[YOUTUBE] Deleting video {video_id}...")
+        service.videos().delete(id=video_id).execute()
+        print(f"[YOUTUBE] Successfully deleted video {video_id}")
+        return True
+    except HttpError as e:
+        print(f"[YOUTUBE] Failed to delete video {video_id}: {e}")
+        return False
+    except Exception as e:
+        print(f"[YOUTUBE] Unexpected error deleting {video_id}: {e}")
+        return False
+
+
+def update_video_metadata(
+    service,
+    video_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
+) -> bool:
+    """
+    Update the metadata of an existing YouTube video.
+
+    Only provided fields are updated; others remain unchanged.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        # First fetch current snippet
+        response = service.videos().list(
+            part="snippet",
+            id=video_id
+        ).execute()
+
+        if not response.get("items"):
+            print(f"[YOUTUBE] Video {video_id} not found.")
+            return False
+
+        snippet = response["items"][0]["snippet"]
+
+        if title is not None:
+            snippet["title"] = title
+        if description is not None:
+            snippet["description"] = description
+        if tags is not None:
+            snippet["tags"] = tags
+
+        # categoryId is required for update
+        if "categoryId" not in snippet:
+            snippet["categoryId"] = "28"
+
+        service.videos().update(
+            part="snippet",
+            body={"id": video_id, "snippet": snippet}
+        ).execute()
+
+        print(f"[YOUTUBE] Updated metadata for video {video_id}")
+        return True
+
+    except HttpError as e:
+        print(f"[YOUTUBE] Failed to update video {video_id}: {e}")
+        return False
+    except Exception as e:
+        print(f"[YOUTUBE] Unexpected error updating {video_id}: {e}")
+        return False

@@ -102,6 +102,37 @@ def get_dates_needing_upload(date_list: list[str]) -> list[str]:
     return [d for d in date_list if is_video_created(d) and not is_uploaded(d)]
 
 
+def unmark_uploaded(date_str: str) -> None:
+    """Remove the YouTube upload record for a date (keeps video record)."""
+    data = _load()
+    if date_str in data:
+        data[date_str].pop("youtube_uploaded", None)
+        data[date_str].pop("youtube_video_id", None)
+        data[date_str].pop("uploaded_at", None)
+        _save(data)
+        print(f"[TRACKING] Cleared upload record for {date_str}")
+
+
+def unmark_video_created(date_str: str) -> None:
+    """Remove the video creation record for a date."""
+    data = _load()
+    if date_str in data:
+        data[date_str].pop("video_created", None)
+        data[date_str].pop("video_path", None)
+        data[date_str].pop("created_at", None)
+        _save(data)
+        print(f"[TRACKING] Cleared video record for {date_str}")
+
+
+def remove_entry(date_str: str) -> None:
+    """Completely remove a tracking entry for a date."""
+    data = _load()
+    if date_str in data:
+        del data[date_str]
+        _save(data)
+        print(f"[TRACKING] Removed all tracking data for {date_str}")
+
+
 def cleanup_old_entries(keep_days: int = 30) -> None:
     """Remove tracking entries older than keep_days."""
     from datetime import timedelta
