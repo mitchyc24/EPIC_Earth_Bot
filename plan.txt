@@ -1,85 +1,59 @@
-NASA EPIC Bot Architecture
-The following structure organizes your logic into a single Python-based repository.
+EPIC Earth Bot - Architecture & Plan
+=====================================
 
-1. Repository Structure
-Plaintext
-.
-├── .github/workflows/daily_post.yml  # The Cron Job scheduler
-├── main.py                           # The "Orchestrator" script
-├── utils/
-│   ├── nasa_api.py                   # Logic to fetch/download images
-│   ├── video_engine.py               # FFmpeg wrapper for video creation
-│   └── instagram_bot.py              # Unofficial API wrapper (instagrapi)
-├── requirements.txt                  # Python dependencies
-└── .env                              # Local secrets (ignored by git)
-2. Implementation Steps
-A. Image Acquisition (nasa_api.py)
-The script will query the NASA API for the most recent "natural" color images. It must create a timestamped directory to store the frames.
+Purpose:
+  Automatically create and upload daily NASA EPIC Earth time-lapse
+  videos to YouTube. Designed to be run once daily, with robust
+  tracking to handle missed days without duplicating work.
 
-Key Logic: Fetch the JSON from api.nasa.gov, extract the image IDs, and download the high-res PNGs.
+Repository Structure:
+  .
+  ├── main.py                     # Orchestrator - runs the full pipeline
+  ├── bootstrap.py                # One-time migration: seeds tracking from existing videos
+  ├── requirements.txt            # Python dependencies
+  ├── .env                        # NASA_API_KEY (gitignored)
+  ├── .gitignore
+  ├── data/
+  │   └── tracking.json           # Per-date state: video created, uploaded, IDs
+  ├── output/                     # Generated MP4 videos (epic_earth_YYYY-MM-DD.mp4)
+  ├── utils/
+  │   ├── __init__.py
+  │   ├── nasa_api.py             # NASA EPIC API client (fetch dates, metadata, images)
+  │   ├── video_engine.py         # FFmpeg 9:16 video creation with date overlay
+  │   ├── tracking.py             # JSON-based state tracking system
+  │   └── youtube_upload.py       # YouTube Data API v3 upload with OAuth2
+  └── Youtube/
+      ├── client_secrets.json     # OAuth2 client credentials (from Google Cloud Console)
+      └── oauth_token.json        # Auto-generated OAuth token (gitignored)
 
-B. Video Processing (video_engine.py)
-Using the ffmpeg-python library, the bot will:
+Daily Run Workflow (main.py):
+  1. Fetch available EPIC dates from the last 14 days
+  2. Compare against tracking.json to find dates needing video creation
+  3. For each missing date:
+     a. Download EPIC frames from NASA API
+     b. Create 9:16 (1080x1920) video with date overlay via FFmpeg
+     c. Record in tracking.json
+  4. Authenticate with YouTube (OAuth2, token cached)
+  5. Compare against YouTube channel uploads + tracking to find unuploaded videos
+  6. Upload missing videos with proper metadata (title, description, tags)
+  7. Update tracking.json with YouTube video IDs
+  8. Clean up tracking entries older than 30 days
 
-Read the images in chronological order.
+Anti-Duplication Strategy:
+  - tracking.json records video_created + video_path per date
+  - is_video_created() also checks the file exists on disk
+  - Before uploading, existing YouTube uploads are fetched and cross-checked
+  - Consistent title format enables duplicate detection on YouTube side
+  - Even if tracking.json is lost, YouTube check prevents re-uploads
 
-Apply a "zoom" or "fade" transition if desired.
+First Run:
+  1. pip install -r requirements.txt
+  2. Ensure .env has NASA_API_KEY
+  3. Ensure Youtube/client_secrets.json is configured
+  4. python bootstrap.py  (seeds tracking for any existing videos)
+  5. python main.py       (creates missing videos + uploads)
+  6. First run opens browser for YouTube OAuth consent
 
-Output a .mp4 file encoded in H.264 with a 1:1 aspect ratio, as Instagram prefers these specs for stability.
-
-C. The Upload Logic (instagram_bot.py)
-Use the instagrapi library. It mimics the Android/iOS app headers to reduce the chance of a ban.
-
-Captioning: Dynamically generate a caption using the metadata from NASA (e.g., "Earth on [Date] as seen from 1 million miles away").
-
-Session Management: The script should save a session.json file. This prevents you from "logging in" fresh every day, which is a major red flag for Instagram's security bot.
-
-3. Automation & Jitter
-The GitHub Action (daily_post.yml)
-Instead of a standard Linux cron, GitHub Actions allows you to schedule the workflow. To avoid the "exact same time" detection, we use a Python time.sleep() at the start of the script.
-
-YAML
-name: Daily NASA Earth Post
-on:
-  schedule:
-    # Runs at 14:00 UTC every day
-    - cron: '0 14 * * *'
-  workflow_dispatch: # Allows manual testing
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with: { python-version: '3.10' }
-      
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Run Orchestrator
-        env:
-          NASA_API_KEY: ${{ secrets.NASA_API_KEY }}
-          IG_USERNAME: ${{ secrets.IG_USERNAME }}
-          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
-        run: python main.py
-Implementing the Jitter (main.py)
-Python
-import time
-import random
-
-def run_with_jitter():
-    # Wait anywhere from 1 to 20 minutes before starting
-    delay = random.randint(60, 1200) 
-    print(f"Applying jitter: waiting {delay} seconds...")
-    time.sleep(delay)
-    
-    # Trigger the Fetch -> Create -> Upload flow
-    # ...
-4. Critical Safety Measures
-GitHub Secrets: Never hardcode your Instagram password. Store it in the "Secrets and Variables" section of your GitHub Repo settings.
-
-2FA: If your account has Two-Factor Authentication, instagrapi supports it, but it's much harder to automate. It's often easier to use an app-specific password or a dedicated bot account with 2FA disabled (though less secure).
-
-Rate Limits: Only run the script once per day. Repeated failures and retries can get your IP (GitHub's runner IP) blacklisted by Instagram.
+Subsequent Runs:
+  python main.py
+  (Everything is automatic - skips completed work, processes only new dates)
