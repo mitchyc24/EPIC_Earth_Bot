@@ -147,7 +147,7 @@ def make_video_description(date_str: str) -> str:
 
     return (
         f"A time-lapse of Earth on {formatted}, captured by NASA's EPIC camera "
-        f"aboard the DSCOVR satellite, orbiting approximately 1 million miles from Earth.\n\n"
+        f"aboard the DSCOVR satellite, orbiting approximately 1.5 million km from Earth.\n\n"
         f"These images show the sunlit side of Earth as it rotates throughout the day.\n\n"
         f"Source: NASA EPIC (Earth Polychromatic Imaging Camera)\n"
         f"https://epic.gsfc.nasa.gov/\n\n"

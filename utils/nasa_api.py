@@ -1,7 +1,7 @@
 """
 NASA EPIC API client.
 Fetches natural-color images of Earth taken by the DSCOVR satellite's
-EPIC camera from ~1 million miles away.
+EPIC camera from ~1.5 million km away.
 """
 
 import requests

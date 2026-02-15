@@ -100,7 +100,7 @@ def create_video(
         # Add a subtitle line
         stream = ffmpeg.filter(
             stream, "drawtext",
-            text="NASA EPIC - View from 1 Million Miles",
+            text="NASA EPIC - View from ~1.5 million km above Earth",
             fontsize=28,
             fontcolor="white@0.8",
             borderw=2,
