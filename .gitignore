@@ -16,6 +16,7 @@ session.json
 
 # YouTube OAuth token (contains sensitive credentials)
 Youtube/oauth_token.json
+Youtube/client_secrets.json
 
 # Tracking data (local state)
 data/tracking.json

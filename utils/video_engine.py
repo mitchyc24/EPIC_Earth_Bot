@@ -96,7 +96,7 @@ def create_video(
             borderw=3,
             bordercolor="black",
             x="(w-text_w)/2",
-            y="h-th-80",
+            y=40,
             font="Arial",
         )
 
@@ -110,7 +110,7 @@ def create_video(
             borderw=2,
             bordercolor="black",
             x="(w-text_w)/2",
-            y="h-th-35",
+            y=95,
             font="Arial",
         )
 
