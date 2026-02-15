@@ -11,21 +11,48 @@ Each video is exactly 30 seconds with a different music track.
 import ffmpeg
 import hashlib
 import random
+import subprocess
+import json
 from pathlib import Path
 
 MUSIC_DIR = Path(__file__).parent.parent / "music"
 TARGET_DURATION = 30  # seconds
 
 
-def _pick_music_track(date_str: str) -> Path | None:
+def _get_audio_duration(path: Path) -> float | None:
+    """Get the duration of an audio file in seconds using ffprobe."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                str(path),
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            return float(info["format"]["duration"])
+    except Exception:
+        pass
+    return None
+
+
+def _pick_music_track(date_str: str) -> tuple[Path | None, float]:
     """
-    Pick a music track from the music/ directory.
+    Pick a music track and a random start offset.
 
     Uses the date string as a seed so the same date always gets the
-    same track, but different dates get different tracks.
+    same track and offset, but different dates get different ones.
+
+    Returns
+    -------
+    tuple[Path | None, float]
+        (track_path, start_offset_seconds)
     """
     if not MUSIC_DIR.exists():
-        return None
+        return None, 0.0
 
     tracks = sorted([
         f for f in MUSIC_DIR.iterdir()
@@ -33,13 +60,23 @@ def _pick_music_track(date_str: str) -> Path | None:
     ])
 
     if not tracks:
-        return None
+        return None, 0.0
 
     # Use date hash for deterministic but varied selection
     seed = int(hashlib.md5(date_str.encode()).hexdigest(), 16)
     track = tracks[seed % len(tracks)]
-    print(f"[VIDEO] Selected music: {track.name}")
-    return track
+
+    # Pick a random start offset within the track
+    rng = random.Random(seed)
+    track_duration = _get_audio_duration(track)
+
+    start_offset = 0.0
+    if track_duration and track_duration > TARGET_DURATION:
+        max_start = track_duration - TARGET_DURATION
+        start_offset = rng.uniform(0, max_start)
+
+    print(f"[VIDEO] Selected music: {track.name} (start at {start_offset:.1f}s)")
+    return track, start_offset
 
 
 def create_video(
@@ -153,12 +190,12 @@ def create_video(
         )
 
     # ── Audio stream ─────────────────────────────────────────────
-    music_track = _pick_music_track(date_str)
+    music_track, start_offset = _pick_music_track(date_str)
 
     if music_track:
-        print(f"[VIDEO] Adding music: {music_track.name}")
-        # Input audio, trim to video duration, fade out last 3 seconds
-        audio = ffmpeg.input(str(music_track), ss=0, t=actual_duration)
+        print(f"[VIDEO] Adding music: {music_track.name} (offset {start_offset:.1f}s)")
+        # Input audio from random offset, trim to video duration, fade out last 3s
+        audio = ffmpeg.input(str(music_track), ss=start_offset, t=actual_duration)
         fade_start = max(0, actual_duration - 3)
         audio = ffmpeg.filter(audio, "afade", t="out", st=fade_start, d=3)
 
