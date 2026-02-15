@@ -110,7 +110,6 @@ def create_missing_videos(dates: list[str], api_key: str | None) -> int:
                 frame_paths=frames,
                 output_path=str(output_path),
                 date_str=date_str,
-                fps=12,
             )
 
             # Record in tracking

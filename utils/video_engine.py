@@ -1,27 +1,60 @@
 """
 Video engine - converts a sequence of EPIC Earth frames into a
-9:16 vertical (1080x1920) H.264 MP4 with date overlay, suitable
-for YouTube Shorts.
+9:16 vertical (1080x1920) H.264 MP4 with date overlay and background
+music, suitable for YouTube Shorts.
 
 Uses FFmpeg via ffmpeg-python. The Earth (2048x2048 source) is
-centered in the vertical frame with the date stamped at the bottom.
+centered in the vertical frame with the date stamped at the top.
+Each video is exactly 30 seconds with a different music track.
 """
 
 import ffmpeg
+import hashlib
+import random
 from pathlib import Path
+
+MUSIC_DIR = Path(__file__).parent.parent / "music"
+TARGET_DURATION = 30  # seconds
+
+
+def _pick_music_track(date_str: str) -> Path | None:
+    """
+    Pick a music track from the music/ directory.
+
+    Uses the date string as a seed so the same date always gets the
+    same track, but different dates get different tracks.
+    """
+    if not MUSIC_DIR.exists():
+        return None
+
+    tracks = sorted([
+        f for f in MUSIC_DIR.iterdir()
+        if f.suffix.lower() in (".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac")
+    ])
+
+    if not tracks:
+        return None
+
+    # Use date hash for deterministic but varied selection
+    seed = int(hashlib.md5(date_str.encode()).hexdigest(), 16)
+    track = tracks[seed % len(tracks)]
+    print(f"[VIDEO] Selected music: {track.name}")
+    return track
 
 
 def create_video(
     frame_paths: list[Path],
     output_path: str | Path = "output.mp4",
     date_str: str = "",
-    fps: int = 12,
+    fps: int | None = None,
     width: int = 1080,
     height: int = 1920,
     subtitle_text: str | None = None,
+    duration: int = TARGET_DURATION,
 ) -> Path:
     """
-    Stitch frames into a 9:16 vertical MP4 with date overlay.
+    Stitch frames into a 30-second 9:16 vertical MP4 with date overlay
+    and background music.
 
     Parameters
     ----------
@@ -31,14 +64,16 @@ def create_video(
         Where to write the final video.
     date_str : str
         Date string to overlay on the video (e.g. "2026-02-06").
-    fps : int
-        Playback frame-rate.
+    fps : int | None
+        Playback frame-rate. If None, auto-calculated for 30s duration.
     width : int
         Output width (default 1080 for 9:16).
     height : int
         Output height (default 1920 for 9:16).
     subtitle_text : str | None
         Custom subtitle text. If None, uses the default.
+    duration : int
+        Target video duration in seconds (default 30).
 
     Returns
     -------
@@ -51,79 +86,106 @@ def create_video(
     if len(frame_paths) < 2:
         raise ValueError("Need at least 2 frames to create a video.")
 
-    # Use the first frame's parent dir with a glob pattern
     frame_dir = frame_paths[0].parent
     pattern = str(frame_dir / "frame_%03d.png")
-
     total_frames = len(frame_paths)
-    duration = total_frames / fps
 
-    print(f"[VIDEO] Creating {width}x{height} video @ {fps}fps from {total_frames} frames")
-    print(f"[VIDEO] Total duration: {duration:.1f}s | Date overlay: {date_str}")
+    # Auto-calculate FPS to hit target duration
+    if fps is None:
+        fps_calc = total_frames / duration
+        # Clamp to a reasonable minimum to avoid FFmpeg issues
+        fps_calc = max(fps_calc, 0.1)
+    else:
+        fps_calc = fps
 
-    # Build FFmpeg filter chain:
-    # 1. Scale source to fit width (Earth is 2048x2048, scale to 1080x1080)
-    # 2. Pad to 1080x1920, centering the Earth vertically
-    # 3. Overlay the date text at the bottom
-    stream = ffmpeg.input(pattern, framerate=fps)
+    actual_duration = total_frames / fps_calc
 
-    # Scale to fit the width while maintaining aspect ratio
-    stream = ffmpeg.filter(stream, "scale", width, -1)
+    print(f"[VIDEO] Creating {width}x{height} video from {total_frames} frames")
+    print(f"[VIDEO] Framerate: {fps_calc:.3f} fps | Duration: {actual_duration:.1f}s")
+    print(f"[VIDEO] Date overlay: {date_str}")
 
-    # Pad to full 9:16 canvas, centered vertically (black bars top/bottom)
-    stream = ffmpeg.filter(
-        stream, "pad",
+    # ── Video stream ─────────────────────────────────────────────
+    video = ffmpeg.input(pattern, framerate=fps_calc)
+
+    # Scale to fit width, maintain aspect ratio
+    video = ffmpeg.filter(video, "scale", width, -1)
+
+    # Pad to full 9:16 canvas, centered vertically
+    video = ffmpeg.filter(
+        video, "pad",
         width, height,
         "(ow-iw)/2", "(oh-ih)/2",
         color="black"
     )
 
-    # Draw date text overlay
+    # Draw date text overlay at the top
     if date_str:
-        # Format the date nicely
         from datetime import datetime
         try:
             dt = datetime.strptime(date_str, "%Y-%m-%d")
-            display_date = dt.strftime("%B %d, %Y")  # e.g. "February 06, 2026"
+            display_date = dt.strftime("%B %d, %Y")
         except ValueError:
             display_date = date_str
 
-        stream = ffmpeg.filter(
-            stream, "drawtext",
+        video = ffmpeg.filter(
+            video, "drawtext",
             text=display_date,
             fontsize=48,
             fontcolor="white",
             borderw=3,
             bordercolor="black",
             x="(w-text_w)/2",
-            y=40,
+            y=300,
             font="Arial",
         )
 
-        # Add a subtitle line
         sub = subtitle_text if subtitle_text else "NASA EPIC - View from ~1.5 million km above Earth"
-        stream = ffmpeg.filter(
-            stream, "drawtext",
+        video = ffmpeg.filter(
+            video, "drawtext",
             text=sub,
             fontsize=28,
             fontcolor="white@0.8",
             borderw=2,
             bordercolor="black",
             x="(w-text_w)/2",
-            y=95,
+            y=350,
             font="Arial",
         )
 
-    # Output with YouTube-friendly encoding settings
-    stream = ffmpeg.output(
-        stream,
-        str(output_path),
-        vcodec="libx264",
-        pix_fmt="yuv420p",
-        preset="slow",
-        crf=18,
-        movflags="+faststart",
-    )
+    # ── Audio stream ─────────────────────────────────────────────
+    music_track = _pick_music_track(date_str)
+
+    if music_track:
+        print(f"[VIDEO] Adding music: {music_track.name}")
+        # Input audio, trim to video duration, fade out last 3 seconds
+        audio = ffmpeg.input(str(music_track), ss=0, t=actual_duration)
+        fade_start = max(0, actual_duration - 3)
+        audio = ffmpeg.filter(audio, "afade", t="out", st=fade_start, d=3)
+
+        # Mux video + audio
+        stream = ffmpeg.output(
+            video, audio,
+            str(output_path),
+            vcodec="libx264",
+            acodec="aac",
+            audio_bitrate="192k",
+            pix_fmt="yuv420p",
+            preset="slow",
+            crf=18,
+            movflags="+faststart",
+            shortest=None,  # end when shortest stream ends
+        )
+    else:
+        print("[VIDEO] No music tracks found in music/ directory. Creating silent video.")
+        stream = ffmpeg.output(
+            video,
+            str(output_path),
+            vcodec="libx264",
+            pix_fmt="yuv420p",
+            preset="slow",
+            crf=18,
+            movflags="+faststart",
+        )
 
     stream = ffmpeg.overwrite_output(stream)
 

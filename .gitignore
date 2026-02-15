@@ -21,6 +21,9 @@ Youtube/client_secrets.json
 # Tracking data (local state)
 data/tracking.json
 
+# Music files (downloaded via download_music.py)
+music/
+
 # OS
 .DS_Store
 Thumbs.db

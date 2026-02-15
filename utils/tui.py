@@ -443,7 +443,6 @@ def _action_create_video(date_str: str):
             frame_paths=frames,
             output_path=str(output_path),
             date_str=date_str,
-            fps=12,
         )
 
         mark_video_created(date_str, str(video_path))
@@ -528,7 +527,6 @@ def _action_regenerate_video(date_str: str):
             frame_paths=frames,
             output_path=str(output_path),
             date_str=overlay_date,
-            fps=12,
             subtitle_text=custom_subtitle if custom_subtitle else None,
         )
 
@@ -949,7 +947,15 @@ def show_settings():
     table.add_row("Output Directory", str(OUTPUT_DIR.resolve()))
     table.add_row("Lookback Days", str(LOOKBACK_DAYS))
     table.add_row("Video Resolution", "1080 x 1920 (9:16)")
-    table.add_row("Video FPS", "12")
+    table.add_row("Video Duration", "30 seconds (auto FPS)")
+
+    # Music info
+    from utils.video_engine import MUSIC_DIR
+    if MUSIC_DIR.exists():
+        music_files = [f for f in MUSIC_DIR.iterdir() if f.suffix.lower() in (".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac")]
+        table.add_row("Music Tracks", f"[green]{len(music_files)} tracks[/green]")
+    else:
+        table.add_row("Music Tracks", "[red]None (run download_music.py)[/red]")
 
     # Count existing files
     output_count = len(list(OUTPUT_DIR.glob("epic_earth_*.mp4"))) if OUTPUT_DIR.exists() else 0
