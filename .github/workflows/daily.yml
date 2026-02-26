@@ -1,0 +1,78 @@
+# Daily Automation - EPIC Earth Bot
+#
+# Runs once a day to:
+#   1. Fetch the latest NASA EPIC images
+#   2. Create time-lapse videos for any missing dates
+#   3. Upload new videos to YouTube
+#
+# Required GitHub Secrets:
+#   NASA_API_KEY            - Your NASA API key (get one free at https://api.nasa.gov/)
+#   YOUTUBE_CLIENT_SECRETS  - Full JSON content of your OAuth2 client_secrets.json
+#   YOUTUBE_OAUTH_TOKEN     - Full JSON content of your oauth_token.json
+#                             (generated on first local run; contains refresh_token)
+#
+# The workflow caches the data/ and output/ directories between runs so that
+# tracking state and already-created video files are reused, avoiding
+# redundant work when re-runs occur.
+
+name: Daily EPIC Earth Bot
+
+on:
+  schedule:
+    # Runs at 06:00 UTC every day (NASA EPIC images are typically available by then)
+    - cron: "0 6 * * *"
+  workflow_dispatch: # Allow manual triggering from the Actions tab
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies (ffmpeg)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache data and output directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/
+            output/
+          # Include run_id so the key is always a cache miss on restore,
+          # which causes actions/cache to auto-save after the job.
+          # restore-keys finds the most recent previous entry by prefix.
+          key: epic-bot-state-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            epic-bot-state-${{ runner.os }}-
+
+      - name: Write YouTube client secrets
+        env:
+          YOUTUBE_CLIENT_SECRETS: ${{ secrets.YOUTUBE_CLIENT_SECRETS }}
+        run: |
+          mkdir -p Youtube
+          echo "$YOUTUBE_CLIENT_SECRETS" > Youtube/client_secrets.json
+
+      - name: Write YouTube OAuth token
+        env:
+          YOUTUBE_OAUTH_TOKEN: ${{ secrets.YOUTUBE_OAUTH_TOKEN }}
+        run: |
+          mkdir -p Youtube
+          echo "$YOUTUBE_OAUTH_TOKEN" > Youtube/oauth_token.json
+
+      - name: Run EPIC Earth Bot
+        env:
+          NASA_API_KEY: ${{ secrets.NASA_API_KEY }}
+        run: python main.py --auto
