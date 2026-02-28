@@ -6,17 +6,83 @@ music, suitable for YouTube Shorts.
 Uses FFmpeg via ffmpeg-python. The Earth (2048x2048 source) is
 centered in the vertical frame with the date stamped at the top.
 Each video is exactly 30 seconds with a different music track.
+
+Music is downloaded fresh on every run: a track is chosen
+deterministically from the catalogue using a date-based seed,
+fetched from the Internet Archive, used, then discarded.
 """
 
 import ffmpeg
 import hashlib
 import random
+import requests
 import subprocess
 import json
+import tempfile
 from pathlib import Path
 
-MUSIC_DIR = Path(__file__).parent.parent / "music"
 TARGET_DURATION = 30  # seconds
+
+# ── CC0 / public-domain space-themed catalogue ────────────────────────
+# All tracks are CC0 1.0 Universal — no attribution required.
+# Sources: Internet Archive (stable permanent URLs)
+_IA = "https://archive.org/download"
+_ES = f"{_IA}/LiveCellarBar24-11-14ElectricStratosphere"
+_AN = f"{_IA}/gt446Andromeda-AcousticsAmongStars"
+_GW = f"{_IA}/E4g004-Graphite412AGrainOfWheat"
+
+TRACKS = [
+    {
+        "name": "ambient-space-01.mp3",
+        "url": f"{_ES}/02VoyagerOne.mp3",
+        "description": "Voyager One – La Luna e Le Stelle (6:26)",
+    },
+    {
+        "name": "ambient-space-02.mp3",
+        "url": f"{_ES}/04Jupiter.mp3",
+        "description": "Jupiter – La Luna e Le Stelle (4:53)",
+    },
+    {
+        "name": "ambient-space-03.mp3",
+        "url": f"{_ES}/05AlphaRise.mp3",
+        "description": "Alpha Rise – La Luna e Le Stelle (5:57)",
+    },
+    {
+        "name": "ambient-space-04.mp3",
+        "url": f"{_ES}/06CelestialCataylizer.mp3",
+        "description": "Celestial Catalyzer – La Luna e Le Stelle (9:55)",
+    },
+    {
+        "name": "ambient-space-05.mp3",
+        "url": f"{_ES}/05Mars.mp3",
+        "description": "Mars – La Luna e Le Stelle (13:34)",
+    },
+    {
+        "name": "ambient-space-06.mp3",
+        "url": f"{_ES}/01Cyberhawk.mp3",
+        "description": "Cyberhawk – La Luna e Le Stelle (5:38)",
+    },
+    {
+        "name": "ambient-space-07.mp3",
+        "url": f"{_AN}/5.part2.mp3",
+        "description": "Signals from Emptiness Pt 2 – Andromeda (4:36)",
+    },
+    {
+        "name": "ambient-space-08.mp3",
+        "url": f"{_AN}/6..mp3",
+        "description": "Boreas (Sky Wanderer) – Andromeda (6:03)",
+    },
+    {
+        "name": "ambient-space-09.mp3",
+        "url": f"{_AN}/3..mp3",
+        "description": "Jupiter's Shadow – Andromeda (3:57)",
+    },
+    {
+        "name": "ambient-space-10.mp3",
+        "url": f"{_GW}/AGrainOfWheat.mp3",
+        "description": "A Grain of Wheat – graphite412 (9:03)",
+    },
+]
 
 
 def _get_audio_duration(path: Path) -> float | None:
@@ -39,44 +105,54 @@ def _get_audio_duration(path: Path) -> float | None:
     return None
 
 
-def _pick_music_track(date_str: str) -> tuple[Path | None, float]:
+def _fetch_music_track(date_str: str) -> tuple[Path | None, float]:
     """
-    Pick a music track and a random start offset.
+    Select a track deterministically from the catalogue using the date
+    string as a seed, download it to a temporary file, and return a
+    random start offset within the track.
 
-    Uses the date string as a seed so the same date always gets the
-    same track and offset, but different dates get different ones.
+    The temp file is the caller's responsibility to delete when done.
 
     Returns
     -------
     tuple[Path | None, float]
-        (track_path, start_offset_seconds)
+        (temp_track_path, start_offset_seconds)
     """
-    if not MUSIC_DIR.exists():
-        return None, 0.0
-
-    tracks = sorted([
-        f for f in MUSIC_DIR.iterdir()
-        if f.suffix.lower() in (".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac")
-    ])
-
-    if not tracks:
-        return None, 0.0
-
     # Use date hash for deterministic but varied selection
     seed = int(hashlib.md5(date_str.encode()).hexdigest(), 16)
-    track = tracks[seed % len(tracks)]
+    track_meta = TRACKS[seed % len(TRACKS)]
+
+    print(f"[VIDEO] Downloading music: {track_meta['description']} ...")
+
+    tmp_path = None
+    try:
+        resp = requests.get(track_meta["url"], timeout=120, stream=True)
+        resp.raise_for_status()
+
+        suffix = Path(track_meta["name"]).suffix
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = Path(tmp.name)
+            for chunk in resp.iter_content(chunk_size=8192):
+                tmp.write(chunk)
+    except Exception as e:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        print(f"[VIDEO] Failed to download music ({e}). Creating silent video.")
+        return None, 0.0
+
+    track_path = tmp_path
 
     # Pick a random start offset within the track
     rng = random.Random(seed)
-    track_duration = _get_audio_duration(track)
+    track_duration = _get_audio_duration(track_path)
 
     start_offset = 0.0
     if track_duration and track_duration > TARGET_DURATION:
         max_start = track_duration - TARGET_DURATION
         start_offset = rng.uniform(0, max_start)
 
-    print(f"[VIDEO] Selected music: {track.name} (start at {start_offset:.1f}s)")
-    return track, start_offset
+    print(f"[VIDEO] Selected: {track_meta['name']} (start at {start_offset:.1f}s)")
+    return track_path, start_offset
 
 
 def create_video(
@@ -190,7 +266,7 @@ def create_video(
         )
 
     # ── Audio stream ─────────────────────────────────────────────
-    music_track, start_offset = _pick_music_track(date_str)
+    music_track, start_offset = _fetch_music_track(date_str)
 
     if music_track:
         print(f"[VIDEO] Adding music: {music_track.name} (offset {start_offset:.1f}s)")
@@ -213,7 +289,7 @@ def create_video(
             shortest=None,  # end when shortest stream ends
         )
     else:
-        print("[VIDEO] No music tracks found in music/ directory. Creating silent video.")
+        print("[VIDEO] No music available. Creating silent video.")
         stream = ffmpeg.output(
             video,
             str(output_path),
@@ -228,6 +304,10 @@ def create_video(
 
     print("[VIDEO] Running FFmpeg...")
     ffmpeg.run(stream, quiet=True)
+
+    # Clean up the temporary music file now that FFmpeg is done
+    if music_track and music_track.exists():
+        music_track.unlink()
 
     file_size_mb = output_path.stat().st_size / (1024 * 1024)
     print(f"[VIDEO] Done -> {output_path} ({file_size_mb:.1f} MB)")
