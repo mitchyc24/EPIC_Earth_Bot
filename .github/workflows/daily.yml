@@ -45,18 +45,22 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Cache data and output directories
+      - name: Cache data, output, and music directories
         uses: actions/cache@v4
         with:
           path: |
             data/
             output/
+            music/
           # Include run_id so the key is always a cache miss on restore,
           # which causes actions/cache to auto-save after the job.
           # restore-keys finds the most recent previous entry by prefix.
           key: epic-bot-state-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             epic-bot-state-${{ runner.os }}-
+
+      - name: Download background music
+        run: python download_music.py
 
       - name: Write YouTube client secrets
         env:
