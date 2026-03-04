@@ -45,12 +45,13 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Cache data and output directories
+      - name: Cache data, output, and YouTube token directories
         uses: actions/cache@v4
         with:
           path: |
             data/
             output/
+            Youtube/oauth_token.json
           # Include run_id so the key is always a cache miss on restore,
           # which causes actions/cache to auto-save after the job.
           # restore-keys finds the most recent previous entry by prefix.
@@ -70,7 +71,19 @@ jobs:
           YOUTUBE_OAUTH_TOKEN: ${{ secrets.YOUTUBE_OAUTH_TOKEN }}
         run: |
           mkdir -p Youtube
-          echo "$YOUTUBE_OAUTH_TOKEN" > Youtube/oauth_token.json
+          # Only write from secret when no cached token is present.
+          # A cached token may already contain a refreshed credential from a
+          # previous run, so we prefer it over the (potentially stale) secret.
+          if [ ! -f Youtube/oauth_token.json ]; then
+            if [ -z "$YOUTUBE_OAUTH_TOKEN" ]; then
+              echo "WARNING: YOUTUBE_OAUTH_TOKEN secret is empty or unset. YouTube uploads will be skipped."
+            else
+              echo "$YOUTUBE_OAUTH_TOKEN" > Youtube/oauth_token.json
+              echo "OAuth token written from secret."
+            fi
+          else
+            echo "Using cached OAuth token."
+          fi
 
       - name: Run EPIC Earth Bot
         env:

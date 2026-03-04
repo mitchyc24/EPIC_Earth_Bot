@@ -18,6 +18,7 @@ from datetime import datetime
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
@@ -54,9 +55,26 @@ def get_authenticated_service():
     # Refresh or get new credentials
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            print("[YOUTUBE] Refreshing expired OAuth token...")
-            creds.refresh(Request())
-        else:
+            try:
+                print("[YOUTUBE] Refreshing expired OAuth token...")
+                creds.refresh(Request())
+                # Save the refreshed credentials
+                with open(TOKEN_FILE, "w") as f:
+                    f.write(creds.to_json())
+                print("[YOUTUBE] OAuth token refreshed and saved.")
+            except RefreshError as e:
+                print(f"[YOUTUBE] Token refresh failed: {e}")
+                print("[YOUTUBE] The OAuth refresh token has expired or been revoked.")
+                print(
+                    "[YOUTUBE] To fix this, run the bot locally to re-authorize, "
+                    "then update the YOUTUBE_OAUTH_TOKEN GitHub secret with the new "
+                    f"contents of {TOKEN_FILE}."
+                )
+                # Remove the stale token so a local re-run can start a fresh auth flow
+                TOKEN_FILE.unlink(missing_ok=True)
+                creds = None
+
+        if not creds or not creds.valid:
             if not CLIENT_SECRETS_FILE.exists():
                 raise FileNotFoundError(
                     f"YouTube client_secrets.json not found at {CLIENT_SECRETS_FILE}. "
@@ -69,10 +87,10 @@ def get_authenticated_service():
             )
             creds = flow.run_local_server(port=0)
 
-        # Save credentials for next run
-        with open(TOKEN_FILE, "w") as f:
-            f.write(creds.to_json())
-        print("[YOUTUBE] OAuth token saved for future use.")
+            # Save credentials for next run
+            with open(TOKEN_FILE, "w") as f:
+                f.write(creds.to_json())
+            print("[YOUTUBE] OAuth token saved for future use.")
 
     service = build("youtube", "v3", credentials=creds)
     print("[YOUTUBE] Authenticated successfully.")
